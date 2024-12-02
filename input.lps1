@@ -1,0 +1,10 @@
+G n
+= i 2
+% a n i
+W i < n {
+ I a = 0 = i n
+ + i i 1
+ % a n i
+}
+I a = 0 P 0
+I a # 0 P 1
