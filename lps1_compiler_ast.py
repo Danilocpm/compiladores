@@ -1,10 +1,12 @@
 class Token:
-    def __init__(self, type, value=None):
-        self.type = type  # Token type
-        self.value = value  # Token value
+    def __init__(self, type, value=None, line=None, column=None):
+        self.type = type  # Tipo do token
+        self.value = value  # Valor do token
+        self.line = line
+        self.column = column
 
     def __str__(self):
-        return f'Token({self.type}, {repr(self.value)})'
+        return f'Token({self.type}, {repr(self.value)}, linha={self.line}, coluna={self.column})'
 
     def __repr__(self):
         return self.__str__()
@@ -13,47 +15,56 @@ class Lexer:
     def __init__(self, text):
         self.text = text.replace('\r', '')  # Remove carriage returns
         self.pos = 0
+        self.line = 1
+        self.column = 1
         self.current_char = self.text[self.pos] if self.text else None
 
     def advance(self):
-        """Advance the 'pos' pointer and set 'current_char'."""
+        """Avança o ponteiro 'pos' e atualiza 'current_char'."""
+        if self.current_char == '\n':
+            self.line += 1
+            self.column = 0
         self.pos += 1
+        self.column += 1
         if self.pos >= len(self.text):
-            self.current_char = None  # Indicates end of input
+            self.current_char = None  # Indica fim da entrada
         else:
             self.current_char = self.text[self.pos]
 
     def skip_whitespace(self):
-        """Skip any whitespace characters."""
+        """Ignora espaços em branco."""
         while self.current_char is not None and self.current_char in ' \t\n':
             self.advance()
 
     def get_next_token(self):
-        """Lexical analyzer (tokenizer)"""
+        """Analisador léxico (tokenizador)"""
         while self.current_char is not None:
             if self.current_char in ' \t\n':
                 self.skip_whitespace()
                 continue
 
+            token_line = self.line
+            token_column = self.column
+
             if self.current_char in '=G+-*/%PIW{}#<':
                 char = self.current_char
                 self.advance()
-                return Token(char)
+                return Token(char, char, token_line, token_column)
 
             if self.current_char.islower():
                 var = self.current_char
                 self.advance()
-                return Token('VARIABLE', var)
+                return Token('VARIABLE', var, token_line, token_column)
 
             if self.current_char.isdigit():
                 num = self.current_char
                 self.advance()
-                return Token('NUMBER', num)
+                return Token('NUMBER', num, token_line, token_column)
 
-            # Unrecognized character
-            raise Exception(f'Invalid character: {self.current_char}')
+            # Caractere não reconhecido
+            raise Exception(f'Caractere inválido "{self.current_char}" na linha {self.line}, coluna {self.column}.')
 
-        return Token('EOF')
+        return Token('EOF', line=self.line, column=self.column)
 
 class ASTNode:
     def generate_code(self, code_generator):
@@ -159,7 +170,7 @@ class ComparisonNode(ASTNode):
 
 class ValueNode(ASTNode):
     def __init__(self, value):
-        self.value = value  # VariableNode or NumberNode
+        self.value = value  # VariableNode ou NumberNode
 
     def generate_code(self, code_generator):
         return self.value.generate_code(code_generator)
@@ -174,7 +185,7 @@ class VariableNode(ASTNode):
 
 class NumberNode(ASTNode):
     def __init__(self, value):
-        self.value = value  # String representation of the number
+        self.value = value  # Representação em string do número
 
     def generate_code(self, code_generator):
         return self.value
@@ -188,7 +199,7 @@ class Parser:
         if self.token.type == token_type:
             self.token = self.lexer.get_next_token()
         else:
-            raise Exception(f'Unexpected token: {self.token.type}, expected: {token_type}')
+            raise Exception(f'Token inesperado "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}. Esperado "{token_type}".')
 
     def program(self):
         # Program ::= Command { Command }
@@ -198,7 +209,7 @@ class Parser:
         return ProgramNode(commands)
 
     def command(self):
-        # Determine which command to parse based on the current token
+        # Determina qual comando analisar com base no token atual
         if self.token.type == '=':
             return self.assign_command()
         elif self.token.type == 'G':
@@ -222,11 +233,13 @@ class Parser:
         elif self.token.type == '{':
             return self.composite_command()
         else:
-            raise Exception(f'Unknown command: {self.token.type}')
+            raise Exception(f'Comando inexistente "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}.')
 
     def assign_command(self):
         # AssignCommand ::= “=” Variable Value
         self.eat('=')
+        if self.token.type != 'VARIABLE':
+            raise Exception(f'Variável esperada após "=", mas encontrado "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}.')
         var = self.variable()
         self.eat('VARIABLE')
         val = self.value()
@@ -235,6 +248,8 @@ class Parser:
     def get_command(self):
         # GetCommand ::= “G” Variable
         self.eat('G')
+        if self.token.type != 'VARIABLE':
+            raise Exception(f'Variável esperada após "G", mas encontrado "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}.')
         var = self.variable()
         self.eat('VARIABLE')
         return GetCommandNode(var.name)
@@ -242,6 +257,8 @@ class Parser:
     def add_command(self):
         # AddCommand ::= “+” Variable Value Value
         self.eat('+')
+        if self.token.type != 'VARIABLE':
+            raise Exception(f'Variável esperada após "+", mas encontrado "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}.')
         var = self.variable()
         self.eat('VARIABLE')
         val1 = self.value()
@@ -251,6 +268,8 @@ class Parser:
     def sub_command(self):
         # SubCommand ::= “-” Variable Value Value
         self.eat('-')
+        if self.token.type != 'VARIABLE':
+            raise Exception(f'Variável esperada após "-", mas encontrado "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}.')
         var = self.variable()
         self.eat('VARIABLE')
         val1 = self.value()
@@ -260,6 +279,8 @@ class Parser:
     def mult_command(self):
         # MultCommand ::= “*” Variable Value Value
         self.eat('*')
+        if self.token.type != 'VARIABLE':
+            raise Exception(f'Variável esperada após "*", mas encontrado "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}.')
         var = self.variable()
         self.eat('VARIABLE')
         val1 = self.value()
@@ -269,6 +290,8 @@ class Parser:
     def div_command(self):
         # DivCommand ::= “/” Variable Value Value
         self.eat('/')
+        if self.token.type != 'VARIABLE':
+            raise Exception(f'Variável esperada após "/", mas encontrado "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}.')
         var = self.variable()
         self.eat('VARIABLE')
         val1 = self.value()
@@ -278,6 +301,8 @@ class Parser:
     def mod_command(self):
         # ModCommand ::= “%” Variable Value Value
         self.eat('%')
+        if self.token.type != 'VARIABLE':
+            raise Exception(f'Variável esperada após "%", mas encontrado "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}.')
         var = self.variable()
         self.eat('VARIABLE')
         val1 = self.value()
@@ -315,6 +340,8 @@ class Parser:
 
     def comparison(self):
         # Comparison ::= Variable Operator Value
+        if self.token.type != 'VARIABLE':
+            raise Exception(f'Variável esperada na comparação, mas encontrado "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}.')
         left = self.variable()
         self.eat('VARIABLE')
         op = self.operator()
@@ -332,7 +359,7 @@ class Parser:
             self.eat(self.token.type)
             return op
         else:
-            raise Exception(f'Invalid operator: {self.token.type}')
+            raise Exception(f'Operador inválido "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}. Esperado "=", "<", ou "#".')
 
     def value(self):
         # Value ::= Variable | Number
@@ -345,9 +372,11 @@ class Parser:
             self.eat('NUMBER')
             return ValueNode(num)
         else:
-            raise Exception(f'Invalid value: {self.token.type}')
+            raise Exception(f'Valor inválido "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}. Esperado variável ou número.')
 
     def variable(self):
+        if self.token.type != 'VARIABLE':
+            raise Exception(f'Variável esperada, mas encontrado "{self.token.type}" na linha {self.token.line}, coluna {self.token.column}.')
         var_name = self.token.value
         return VariableNode(var_name)
 
@@ -370,32 +399,36 @@ def main():
     import sys
 
     if len(sys.argv) != 3:
-        print('Usage: python lps1_compiler_ast.py input.lps1 output.c')
+        print('Uso: python lps1_compiler_ast.py input.lps1 output.c')
         return
 
     input_filename = sys.argv[1]
     output_filename = sys.argv[2]
 
-    # Read the input code from the input file
-    with open(input_filename, 'r', encoding='utf-8') as f:
-        input_code = f.read()
+    # Lê o código de entrada do arquivo
+    try:
+        with open(input_filename, 'r', encoding='utf-8') as f:
+            input_code = f.read()
+    except FileNotFoundError:
+        print(f'Erro: Arquivo "{input_filename}" não encontrado.')
+        return
 
-    # Create a lexer and parser
+    # Cria um lexer e parser
     lexer = Lexer(input_code)
     parser = Parser(lexer)
 
-    # Parse the input and build the AST
+    # Analisa a entrada e constrói a AST
     try:
         ast_root = parser.program()
     except Exception as e:
-        print(f'Error: {e}')
+        print(f'Erro de análise: {e}')
         return
 
-    # Generate code from the AST
+    # Gera o código a partir da AST
     code_generator = CodeGenerator()
     ast_root.generate_code(code_generator)
 
-    # Prepare the final C code
+    # Prepara o código C final
     variables = ', '.join(sorted(code_generator.variables))
     c_code = [
         '#include <stdio.h>',
@@ -405,19 +438,23 @@ def main():
     if variables:
         c_code.append(f'    int {variables};')
     else:
-        c_code.append('    int dummy;')  # Handle case with no variables
+        c_code.append('    int dummy;')  # Caso não haja variáveis
 
     c_code.append('    char str[512]; // auxiliar na leitura com G')
 
     c_code.extend(code_generator.code)
 
-    c_code.append('    gets(str);')  # As per the example, add this at the end
+    c_code.append('    gets(str);')  # Conforme o exemplo, adiciona no final
     c_code.append('    return 0;')
     c_code.append('}')
 
-    # Write the generated C code to the output file
-    with open(output_filename, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(c_code))
+    # Escreve o código C gerado no arquivo de saída
+    try:
+        with open(output_filename, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(c_code))
+    except Exception as e:
+        print(f'Erro ao escrever o arquivo de saída: {e}')
+        return
 
 if __name__ == '__main__':
     main()
